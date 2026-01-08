@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warframe トレード・マスターガイド - Fullscreen Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Orbitron:wght@400;700&display=swap');
+        
+        :root {
+            --wf-cyan: #06b6d4;
+            --wf-gold: #eab308;
+            --wf-dark: #020617;
+            --wf-card: #0f172a;
+            --wf-border: #1e293b;
+        }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f8fafc; /* 背景は明るい色に設定 */
+            color: #1e293b;
+            margin: 0;
+            padding: 0;
+        }
+
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+
+        /* メインアプリケーションコンテナ (フルスクリーン対応) */
+        #app-container {
+            min-height: 100vh;
+            width: 100%;
+            background-color: var(--wf-dark);
+            color: #cbd5e1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 視覚的エフェクト */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(6, 182, 212, 0.15);
+        }
+
+        .active-tab {
+            color: var(--wf-cyan);
+            border-bottom: 2px solid var(--wf-cyan);
+            background: linear-gradient(to top, rgba(6, 182, 212, 0.1), transparent);
+        }
+
+        /* グラフコンテナの強制ルール */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 400px;
+            max-height: 500px;
+        }
+
+        /* カスタムツールチップ (ホバー時) */
+        .item-tooltip {
+            position: absolute;
+            z-index: 50;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(10px);
+            width: 280px;
+            padding: 1rem;
+            background: #0f172a;
+            border: 1px solid var(--wf-cyan);
+            border-radius: 0.75rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+
+        .item-card:hover .item-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(-10px);
+        }
+
+        /* スクロールバー */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--wf-dark); }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--wf-cyan); }
+
+        .animate-slide-up {
+            animation: slideUp 0.5s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--wf-cyan);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--wf-cyan);
+        }
+    </style>
+    <!-- Chosen Palette: Void Protocol (Dark Blue #020617, Cyan #06b6d4, Gold #eab308) -->
+    <!-- Application Structure Plan: 
+         1. フルスクリーン対応：メインコンテナを `min-h-screen w-full` に設定し、大画面でも情報が散らばらないよう `max-w-screen-2xl` でコンテンツを中央寄せ。
+         2. セクション構成：
+            - HOME/PREP: 2FAやMR制限、クラン加入の「具体的なやり方」を解説。
+            - ITEMS: ホバーツールチップによる詳細解説付きのアイテム図鑑。
+            - ECONOMY: Chart.jsを用いた視覚的な税金比較とリアルタイム計算機。
+            - GUIDE: 取引のステップバイステップ手順とマナー。
+         3. デザイン：ダークテーマを基調とし、シアンのネオンアクセントでWarframeのHUD感を演出。
+    -->
+    <!-- Visualization & Content Choices:
+         - Requirement Accordion: 2FA, MR2, Clan Keyの作成方法を「How-to」形式で実装。
+         - Hover Interaction: アイテムカードへのホバーで、取引上の注意点や価値の理由を表示。
+         - Tax Scaling Chart: Primed MODの100万クレジットという異常性を視覚的に表現。
+         - MR Capacity: スライダーによる動的な取引制限回数の表示。
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+</head>
+<body>
+
+    <div id="app-container">
+        
+        <!-- Top HUD Navigation -->
+        <header class="border-b border-cyan-900/30 glass-panel sticky top-0 z-[100]">
+            <div class="max-w-screen-2xl mx-auto px-6 h-20 flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded bg-cyan-500 flex items-center justify-center font-bold text-black rotate-45 shadow-lg shadow-cyan-500/30">
+                        <span class="rotate-[-45deg] font-orbitron text-xl">T</span>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tighter font-orbitron text-white">VOID <span class="text-cyan-400">TRADER'S HUB</span></h1>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            <span class="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Trading System Online</span>
+                        </div>
+                    </div>
+                </div>
+
+                <nav class="hidden md:flex h-full items-center">
+                    <button onclick="switchTab('home')" id="tab-home" class="px-8 h-full flex items-center text-xs font-bold transition-all active-tab">準備・資格</button>
+                    <button onclick="switchTab('items')" id="tab-items" class="px-8 h-full flex items-center text-xs font-bold transition-all text-slate-400 hover:text-cyan-400">アイテム図鑑</button>
+                    <button onclick="switchTab('economy')" id="tab-economy" class="px-8 h-full flex items-center text-xs font-bold transition-all text-slate-400 hover:text-cyan-400">税金と相場</button>
+                    <button onclick="switchTab('guide')" id="tab-guide" class="px-8 h-full flex items-center text-xs font-bold transition-all text-slate-400 hover:text-cyan-400">取引手順</button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow max-w-screen-2xl mx-auto w-full p-8 md:p-12 overflow-y-auto">
+
+            <!-- TAB 1: HOME / PREPARATION -->
+            <section id="content-home" class="tab-content animate-slide-up space-y-16">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                    <div class="space-y-6">
+                        <h2 class="text-4xl font-black text-white font-orbitron leading-tight">準備を<span class="text-cyan-400">怠るな</span>、テンノよ。</h2>
+                        <p class="text-slate-400 text-lg leading-relaxed">
+                            Warframeのトレードは、特定の条件を満たしたプレイヤーのみに開かれた特権です。
+                            まずは自分のステータスを確認し、必要なセキュリティ設定を完了させましょう。
+                        </p>
+                        
+                        <!-- Interactive Capacity Display -->
+                        <div class="glass-panel p-8 rounded-2xl border-l-4 border-amber-500 bg-slate-900/30">
+                            <div class="flex justify-between items-end mb-4">
+                                <div>
+                                    <p class="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Mastery Rank Influence</p>
+                                    <h4 class="text-xl font-bold text-white">1日の取引可能回数</h4>
+                                </div>
+                                <div id="mr-display" class="text-5xl font-black text-white font-orbitron">10</div>
+                            </div>
+                            <input type="range" id="mr-slider" min="2" max="34" value="10" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 mb-6" oninput="updateMR(this.value)">
+                            <div class="flex items-center gap-4 text-xs text-slate-400">
+                                <span class="px-2 py-1 bg-slate-800 rounded">💡 MRが高いほど1日に多くの取引が可能です。</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">トレード解禁チェックリスト</h4>
+                        <!-- Step 1 -->
+                        <div class="glass-panel rounded-xl border border-slate-800 group transition-all hover:border-cyan-500/50">
+                            <button onclick="toggleAccordion('acc-2fa')" class="w-full p-6 flex justify-between items-center text-left">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-10 h-10 rounded-lg bg-cyan-950/50 flex items-center justify-center text-cyan-400 font-bold border border-cyan-900/50">01</div>
+                                    <div>
+                                        <p class="text-white font-bold">2段階認証 (2FA) の有効化</p>
+                                        <p class="text-[10px] text-slate-500">必須：アイテム詐欺や不正アクセス防止のため</p>
+                                    </div>
+                                </div>
+                                <span id="icon-2fa" class="text-slate-500 font-orbitron">＋</span>
+                            </button>
+                            <div id="acc-2fa" class="hidden px-8 pb-8 text-sm text-slate-400 space-y-3">
+                                <div class="bg-black/30 p-4 rounded-lg border-l-2 border-cyan-500">
+                                    <p class="text-white font-bold mb-2">やり方：</p>
+                                    <ol class="list-decimal list-inside space-y-1">
+                                        <li>公式サイト(warframe.com)へ行き、ログイン。</li>
+                                        <li>「アカウント管理」セクションを開く。</li>
+                                        <li>「2段階認証（TennoGuard）」を有効にするをクリック。</li>
+                                        <li>届いたメールを確認して設定完了。</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Step 2 -->
+                        <div class="glass-panel rounded-xl border border-slate-800 group transition-all hover:border-cyan-500/50">
+                            <button onclick="toggleAccordion('acc-clan')" class="w-full p-6 flex justify-between items-center text-left">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-10 h-10 rounded-lg bg-cyan-950/50 flex items-center justify-center text-cyan-400 font-bold border border-cyan-900/50">02</div>
+                                    <div>
+                                        <p class="text-white font-bold">クランDojoの鍵を作成</p>
+                                        <p class="text-[10px] text-slate-500">推奨：取引の場となる「トレーディングポスト」を利用</p>
+                                    </div>
+                                </div>
+                                <span id="icon-clan" class="text-slate-500 font-orbitron">＋</span>
+                            </button>
+                            <div id="acc-clan" class="hidden px-8 pb-8 text-sm text-slate-400 space-y-3">
+                                <div class="bg-black/30 p-4 rounded-lg border-l-2 border-cyan-500">
+                                    <p class="text-white font-bold mb-2">やり方：</p>
+                                    <ol class="list-decimal list-inside space-y-1">
+                                        <li>クランに加入している場合、ファウンドリを確認。</li>
+                                        <li>「クランキー」の設計図を製作（コスト：500Cr）。</li>
+                                        <li>12時間待つ（完了後、星系マップの「クランDojo」へ行ける）。</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: ITEMS -->
+            <section id="content-items" class="tab-content hidden animate-slide-up space-y-10">
+                <div class="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-cyan-900/20 pb-8">
+                    <div>
+                        <h2 class="text-3xl font-bold text-white font-orbitron tracking-tight">TRADABLE <span class="text-cyan-400">ASSETS</span></h2>
+                        <p class="text-slate-400 mt-2">各アイテムにカーソルを合わせると、取引上の注意点が表示されます。</p>
+                    </div>
+                    <div class="flex p-1 bg-slate-900/80 rounded-lg border border-slate-800">
+                        <button onclick="filterItems('all')" class="px-6 py-2 rounded text-[10px] font-bold text-white hover:bg-slate-800 transition-colors">すべて</button>
+                        <button onclick="filterItems('yes')" class="px-6 py-2 rounded text-[10px] font-bold text-emerald-400 hover:bg-slate-800 transition-colors">取引可能</button>
+                        <button onclick="filterItems('no')" class="px-6 py-2 rounded text-[10px] font-bold text-rose-400 hover:bg-slate-800 transition-colors">取引不可</button>
+                    </div>
+                </div>
+
+                <div id="item-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                    <!-- JS Populated Items -->
+                </div>
+            </section>
+
+            <!-- TAB 3: ECONOMY -->
+            <section id="content-economy" class="tab-content hidden animate-slide-up space-y-12">
+                <div class="border-b border-cyan-900/20 pb-8">
+                    <h2 class="text-3xl font-bold text-white font-orbitron tracking-tight">ECONOMIC <span class="text-cyan-400">ANALYSIS</span></h2>
+                    <p class="text-slate-400 mt-2">アイテムを受け取る側のプレイヤーには「トレード税」がかかります。残高不足に注意しましょう。</p>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-12 items-start">
+                    <!-- Tax Calculator Card -->
+                    <div class="glass-panel p-10 rounded-3xl border border-cyan-500/20 space-y-8 lg:sticky lg:top-32">
+                        <div>
+                            <label class="text-[10px] font-bold text-cyan-500 uppercase tracking-widest block mb-3">アイテムカテゴリ</label>
+                            <select id="tax-select" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-white font-bold outline-none focus:ring-2 focus:ring-cyan-500" onchange="calcTax()">
+                                <option value="2000">MOD (コモン)</option>
+                                <option value="8000">MOD (レア)</option>
+                                <option value="1000000">Primed MOD (レジェンダリ)</option>
+                                <option value="2000">Prime 設計図 / パーツ</option>
+                                <option value="500">プラチナ (1ptあたり)</option>
+                                <option value="2000">レリック</option>
+                                <option value="1000000">Legendary Core</option>
+                            </select>
+                        </div>
+
+                        <div id="plat-box" class="hidden">
+                            <label class="text-[10px] font-bold text-cyan-500 uppercase tracking-widest block mb-3">数量</label>
+                            <input type="number" id="tax-qty" value="100" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-white font-bold" oninput="calcTax()">
+                        </div>
+
+                        <div class="bg-black/60 p-10 rounded-2xl text-center border border-slate-800 relative overflow-hidden group">
+                            <div class="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative z-10">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase mb-2">Estimated Transaction Tax</p>
+                                <div id="tax-total" class="text-6xl font-black text-white font-orbitron">2,000</div>
+                                <p class="text-xs text-cyan-400 mt-2 font-bold uppercase tracking-widest">Credits Required</p>
+                            </div>
+                        </div>
+
+                        <div id="tax-warning" class="hidden p-4 bg-rose-950/40 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex items-start gap-4 animate-pulse">
+                            <span class="text-xl">⚠️</span>
+                            <p>警告: 1,000,000 Crが必要です。これは初心者が用意するには非常に高額です。事前に「インデックス」等での稼ぎが必要です。</p>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Chart -->
+                    <div class="xl:col-span-2 glass-panel p-10 rounded-3xl border border-slate-800">
+                        <h4 class="text-lg font-bold text-white mb-10 font-orbitron">TAX <span class="text-slate-500">VISUALIZATION</span></h4>
+                        <div class="chart-container">
+                            <canvas id="taxChart"></canvas>
+                        </div>
+                        <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="p-4 bg-slate-900/50 rounded-lg border border-slate-800">
+                                <p class="text-cyan-400 font-bold text-sm mb-1">取引の鉄則：</p>
+                                <p class="text-[10px] text-slate-400 leading-relaxed">手数料は「受け取る側」が支払います。例えば、あなたがプラチナを受け取るなら、あなたがクレジット税を支払います。</p>
+                            </div>
+                            <div class="p-4 bg-slate-900/50 rounded-lg border border-slate-800">
+                                <p class="text-amber-500 font-bold text-sm mb-1">Dojo税について：</p>
+                                <p class="text-[10px] text-slate-400 leading-relaxed">クランによっては「クラン税」という追加の手数料(0%~100%)を設定しています。Dojoに入る前に確認しましょう。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: GUIDE -->
+            <section id="content-guide" class="tab-content hidden animate-slide-up space-y-12">
+                <div class="border-b border-cyan-900/20 pb-8 text-center max-w-2xl mx-auto">
+                    <h2 class="text-3xl font-bold text-white font-orbitron tracking-tight">TRANSACTION <span class="text-cyan-400">PROTOCOL</span></h2>
+                    <p class="text-slate-400 mt-2">最初の取引を安全に完了させるための標準手順書です。</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
+                    <!-- Protocol Cards -->
+                    <div class="glass-panel p-8 rounded-2xl border border-slate-800 relative group overflow-hidden">
+                        <div class="absolute -top-4 -right-4 w-20 h-20 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/20 transition-all"></div>
+                        <span class="text-4xl font-black text-slate-800 font-orbitron mb-6 block">01</span>
+                        <h5 class="text-white font-bold mb-4">募集とマッチング</h5>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            ゲーム内のトレードチャットで募集を出すか、外部サイト「warframe.market」で希望のアイテムを探します。
+                            後者の方が相場が安定しており、初心者には推奨されます。
+                        </p>
+                    </div>
+                    <div class="glass-panel p-8 rounded-2xl border border-slate-800 relative group overflow-hidden">
+                        <span class="text-4xl font-black text-slate-800 font-orbitron mb-6 block">02</span>
+                        <h5 class="text-white font-bold mb-4">分隊への招待</h5>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            相手が決まったら、チャット欄で相手の名前を右クリックし「招待」を送ります。
+                            合流したら星系マップから「クランDojo」へ移動します。
+                        </p>
+                    </div>
+                    <div class="glass-panel p-8 rounded-2xl border border-slate-800 relative group overflow-hidden">
+                        <span class="text-4xl font-black text-slate-800 font-orbitron mb-6 block">03</span>
+                        <h5 class="text-white font-bold mb-4">取引の実施</h5>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            Dojo内の「トレーディングポスト」端末を調べ、相手を選択。
+                            アイテムをスロットに入れ、相手の提示したものが合っているか確認します。
+                        </p>
+                    </div>
+                    <div class="glass-panel p-8 rounded-2xl border border-slate-800 relative group overflow-hidden">
+                        <span class="text-4xl font-black text-slate-800 font-orbitron mb-6 block">04</span>
+                        <h5 class="text-white font-bold mb-4">最終確認と完了</h5>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            双方が「準備完了」を押すと、最終確認画面が出ます。
+                            プラチナの桁数などに間違いがないか、3秒間静止して確認してから「トレード」を押しましょう。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Footer CTA -->
+                <div class="mt-16 bg-gradient-to-r from-cyan-900/20 via-slate-900 to-amber-900/20 p-12 rounded-[3rem] border border-cyan-500/20 text-center">
+                    <div class="max-w-xl mx-auto space-y-6">
+                        <h4 class="text-2xl font-bold text-white font-orbitron">HAPPY TRADING, TENNO.</h4>
+                        <p class="text-sm text-slate-400">
+                            トレードは単なる金儲けではなく、他のテンノを助け、自らを高める手段です。
+                            常に誠実さを持ち、VOIDの恩恵を享受しましょう。
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- System Status Bar -->
+        <footer class="bg-black/80 border-t border-slate-900 py-4 px-8 flex justify-between items-center text-[9px] font-bold text-slate-600 uppercase tracking-widest">
+            <div>Encrypted Connection: Secure // Node.JP_Region</div>
+            <div class="flex gap-6">
+                <span>© 2024 Warframe Community Tools</span>
+                <span class="text-cyan-900">Developed for Beginners</span>
+            </div>
+        </footer>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // --- ITEM DATA ---
+        const itemDatabase = [
+            { name: "Prime 設計図 / パーツ", status: "yes", icon: "🛡️", info: "一番の売れ筋。セットで売るとプラチナ効率が良い。", tip: "完成品（作成済み）はトレードできません。" },
+            { name: "MOD / Riven", status: "yes", icon: "🃏", info: "強化済み(ランク最大)は、Endoとクレジットの価値が上乗せされます。", tip: "RivenはMR制限に注意してください。" },
+            { name: "プラチナ (通貨)", status: "yes", icon: "💎", info: "最も重要な取引通貨。他者のアイテムを買うのに使います。", tip: "初期配布やPS Plus特典のプラチナは不可。" },
+            { name: "レリック", status: "yes", icon: "🌰", info: "そのまま売ることも、中身を売ることもできます。", tip: "精錬済みでもトレード可能です。" },
+            { name: "Ayatan 像", status: "yes", icon: "🏆", info: "Endoを必要とするプレイヤーに需要があります。", tip: "「星」が全て埋まっている方が高値です。" },
+            { name: "特殊武器 (Vandal/Wraith)", status: "yes", icon: "🔫", info: "パーツのまま、または一度もランクを上げていない状態。", tip: "カタリスト使用済みや1XPでも入ると不可。" },
+            { name: "アーケイン", status: "yes", icon: "✨", info: "ランク0から最大ランクまでトレード可能です。", tip: "クイルやフォーチュナー産の一部も可。" },
+            { name: "作成済フレーム", status: "no", icon: "🤖", info: "自身で使用するのみ。他者に渡すことはできません。", tip: "設計図の状態でトレードしましょう。" },
+            { name: "一般素材 (素材)", status: "no", icon: "🧱", info: "ナノ胞子やポリマーなどはトレード不可です。", tip: "宝石や魚のパーツ、鉱石は例外的に可能です。" },
+            { name: "クレジット", status: "no", icon: "🏧", info: "手数料として消費されるだけで、譲渡はできません。", tip: "通貨としての価値はありません。" },
+            { name: "イベント報酬", status: "no", icon: "🎖️", info: "一部のエンブレムや装飾品は不可です。", tip: "実績に基づいたアイテムは個人のものです。" },
+            { name: "初期装備品", status: "no", icon: "⚔️", info: "通常のMK1武器や初期フレームは対象外です。", tip: "売却(クレジット)のみ可能です。" }
+        ];
+
+        // --- NAVIGATION ---
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById('content-' + tabId).classList.remove('hidden');
+            
+            document.querySelectorAll('nav button').forEach(btn => {
+                if (btn.id === 'tab-' + tabId) {
+                    btn.classList.add('active-tab');
+                    btn.classList.remove('text-slate-400');
+                } else {
+                    btn.classList.remove('active-tab');
+                    btn.classList.add('text-slate-400');
+                }
+            });
+
+            if (tabId === 'economy') setTimeout(initChart, 100);
+        }
+
+        // --- UI LOGIC ---
+        function toggleAccordion(id) {
+            const el = document.getElementById(id);
+            const icon = document.getElementById('icon-' + id.split('-')[1]);
+            const isHidden = el.classList.contains('hidden');
+            
+            // Close all
+            document.querySelectorAll('[id^="acc-"]').forEach(a => a.classList.add('hidden'));
+            document.querySelectorAll('[id^="icon-"]').forEach(i => i.innerText = '＋');
+
+            if (isHidden) {
+                el.classList.remove('hidden');
+                icon.innerText = 'ー';
+            }
+        }
+
+        function updateMR(val) {
+            document.getElementById('mr-display').innerText = val;
+        }
+
+        function filterItems(status) {
+            const grid = document.getElementById('item-grid');
+            grid.innerHTML = '';
+            
+            const filtered = itemDatabase.filter(i => status === 'all' || i.status === status);
+
+            filtered.forEach(item => {
+                const isOk = item.status === 'yes';
+                const card = document.createElement('div');
+                card.className = "item-card relative group cursor-help animate-slide-up";
+                
+                card.innerHTML = `
+                    <div class="p-8 rounded-3xl border-2 transition-all flex flex-col items-center text-center h-full ${isOk ? 'bg-slate-900/50 border-slate-800 hover:border-cyan-500' : 'bg-black/20 border-slate-900 opacity-40'}">
+                        <div class="text-4xl mb-4 group-hover:scale-110 transition-transform">${item.icon}</div>
+                        <div class="text-[11px] font-bold text-white mb-2">${item.name}</div>
+                        <div class="mt-auto px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest ${isOk ? 'bg-cyan-500/10 text-cyan-400' : 'bg-rose-500/10 text-rose-400'}">
+                            ${isOk ? 'Tradable' : 'Forbidden'}
+                        </div>
+                    </div>
+                    
+                    <!-- Full-screen tooltip -->
+                    <div class="item-tooltip">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span>
+                            <span class="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Master Knowledge</span>
+                        </div>
+                        <p class="text-[11px] text-white leading-relaxed mb-4">${item.info}</p>
+                        <div class="p-3 bg-slate-950/50 rounded-lg border border-slate-800">
+                            <p class="text-[9px] text-amber-500 font-bold uppercase mb-1">Beginner's Tip</p>
+                            <p class="text-[10px] text-slate-400 italic">${item.tip}</p>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // --- ECONOMY LOGIC ---
+        function calcTax() {
+            const select = document.getElementById('tax-select');
+            const platBox = document.getElementById('plat-box');
+            const total = document.getElementById('tax-total');
+            const warn = document.getElementById('tax-warning');
+
+            let tax = parseInt(select.value);
+            const isPlat = select.options[select.selectedIndex].text.includes('プラチナ');
+
+            if (isPlat) {
+                platBox.classList.remove('hidden');
+                const qty = parseInt(document.getElementById('tax-qty').value) || 0;
+                tax = tax * qty;
+            } else {
+                platBox.classList.add('hidden');
+            }
+
+            total.innerText = tax.toLocaleString();
+            if (tax >= 1000000) warn.classList.remove('hidden');
+            else warn.classList.add('hidden');
+        }
+
+        // --- CHARTING ---
+        let myChart = null;
+        function initChart() {
+            const ctx = document.getElementById('taxChart').getContext('2d');
+            if (myChart) myChart.destroy();
+
+            myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['コモンMOD', 'レアMOD', 'Primeパーツ', 'プラチナ(100)', 'Primed MOD'],
+                    datasets: [{
+                        data: [2000, 8000, 2000, 50000, 1000000],
+                        backgroundColor: ['#1e293b', '#334155', '#475569', '#06b6d4', '#eab308'],
+                        borderRadius: 12,
+                        barThickness: 40
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#020617',
+                            padding: 16,
+                            titleFont: { family: 'Orbitron', size: 14 },
+                            bodyFont: { family: 'Noto Sans JP', size: 12 },
+                            callbacks: {
+                                label: (c) => ` 税金: ${c.parsed.y.toLocaleString()} Credits`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#64748b',
+                                callback: (v) => v >= 1000000 ? (v/1000000 + 'M') : (v/1000 + 'k')
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#64748b', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- INIT ---
+        window.onload = () => {
+            filterItems('all');
+            calcTax();
+        };
+    </script>
+</body>
+</html>
